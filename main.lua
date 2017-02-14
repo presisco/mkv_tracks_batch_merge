@@ -19,7 +19,7 @@ local templates={}
 {
 	dir=directory,
 	name=new_files[i],
-	language=track_languange_text.value}
+	language=ext_track_lan_text.value}
 ]]
 local files={}
 
@@ -71,6 +71,13 @@ local default_template={
 		hint="use ',' to seperate multiple languages,support ISO639-2",
 		width="large",
 		type="text"
+	},
+	default_subtitle={
+		value="first external",
+		title="default subtitle track behavior",
+		width="medium",
+		type="dropdown",
+		choice={"first external","auto"}
 	}
 }
 
@@ -88,8 +95,12 @@ local file_list=iup.list{expand="yes",multiple="no"}
 local track_list=iup.list{expand="yes",multiple="no"}
 
 local template_list=iup.list{size="100x",dropdown="yes",multiple="no"}
-local track_languange_text=iup.text{size="160x",readonly="yes"}
-local sub_title_text=iup.text{size="160x",readonly="yes"}
+local ext_track_lan_text=iup.text{size="160x",readonly="yes"}
+local ext_track_title_text=iup.text{size="160x",readonly="yes"}
+local audio_track_behavior_text=iup.text{size="60x",readonly="yes"}
+local audio_track_priority_text=iup.text{size="160x",readonly="yes"}
+local subtitle_track_behavior_text=iup.text{size="60x",readonly="yes"}
+local subtitle_track_priority_text=iup.text{size="160x",readonly="yes"}
 
 local config_template_button=iup.button{title="config template"}
 local select_mkvmerge_path_button=iup.button{title="select mkvmerge"}
@@ -104,17 +115,59 @@ local add_file_button=iup.button{title="add videos"}
 local add_track_button=iup.button{title="add tracks"}
 local add_track_to_selected_button=iup.button{title="add tracks to selected video"}
 local process_button=iup.button{title="process"}
+local about_button=iup.button{title="about"}
 
 -- utility func
+
+function get_selected_track_id()
+	local text=track_list[track_list.value]
+	return text:match("id: (.-),")
+end
+
+function remove_track_by_id(tracks,target_id)
+	for index,props in ipairs(tracks)
+	do
+		if props.id == target_id
+		then
+			table.remove(tracks,index)
+			return
+		end
+	end
+end
+
+function duplicate_tracks(tracks)
+	local clone={}
+	
+	for index,props in ipairs(tracks)
+	do
+		local clone_props={}
+		for name,value in pairs(props)
+		do
+			clone_props[name]=value
+		end
+		table.insert(clone,clone_props)
+	end
+	
+	return clone
+end
 
 function assign_external_track_language(tracks)
 	local lan_index=1;
 	local title_index=1;
+	local default_set=false
 	
 	for var,track in ipairs(tracks)
 	do
 		if track.filename ~= nil and track.type == "subtitles"
 		then
+			if current_template.default_subtitle == "first external"
+				and not default_set
+			then
+				track.default="true"
+				default_set=true
+			else
+				track.default="false"
+			end
 			track.language=current_ext_sub_lan[lan_index]
 			track.title=current_ext_sub_title[title_index]
 			if lan_index < #current_ext_sub_lan
@@ -129,11 +182,41 @@ function assign_external_track_language(tracks)
 	end
 end
 
+function reassign_default_track(tracks)
+	if current_template.default_subtitle == "auto"
+	then
+		return;
+	end
+	
+	local has_external_sub=false
+	
+	for index,track in ipairs(tracks)
+	do
+		if track.filename ~= nil and track.type == "subtitles"
+		then
+			has_external_sub=true
+			break;
+		end
+	end
+	
+	for index,track in ipairs(tracks)
+	do
+		if track.filename == nil 
+			and track.type == "subtitles"
+			and has_external_sub
+		then
+			track.default="false"
+		end
+	end
+end
+
 function get_track_list(filepath)
 	local cmd=preference.mkvmerge_exec_path.." -i -F json --ui-language en "..utils.path_wrap(filepath)
 --	print(cmd)
 	local result=io.popen(cmd,"r")
 	local json=result:read("*a")
+	result:close()
+--	print(json)
 	json=json:gsub("\n","")
 	json=json:gsub(" ","")
 	return utils.parse_mkvmerge_identify(json)
@@ -214,9 +297,11 @@ function get_valid_tracks(tracks)
 end
 
 function load_track_list(index)
-	assign_external_track_language(files[index].tracks)
+	local clone_tracks=duplicate_tracks(files[index].tracks)
+	assign_external_track_language(clone_tracks)
+	reassign_default_track(clone_tracks)
 	
-	for i,track in ipairs(get_valid_tracks(files[index].tracks))
+	for i,track in ipairs(get_valid_tracks(clone_tracks))
 	do
 		local list_text={}
 		local concat=function(name)
@@ -231,6 +316,7 @@ function load_track_list(index)
 		concat("codec")
 		concat("language")
 		concat("title")
+		concat("default")
 		track_list.appenditem=table.concat(list_text,", ")
 	end
 end
@@ -253,8 +339,12 @@ function template_selected(index)
 	current_sub_priority=utils.parse_sequence(current_template.sub_track_language_priority,",")
 	current_ext_sub_lan=utils.parse_sequence(current_template.external_sub_language,",")
 	current_ext_sub_title=utils.parse_sequence(current_template.external_sub_title,",")
-	track_languange_text.value=current_template.external_sub_language
-	sub_title_text.value=current_template.external_sub_title
+	ext_track_lan_text.value=current_template.external_sub_language
+	ext_track_title_text.value=current_template.external_sub_title
+	audio_track_behavior_text.value=current_template.audio_track_select_behavior
+	audio_track_priority_text.value=current_template.audio_track_language_priority
+	subtitle_track_behavior_text.value=current_template.sub_track_select_behavior
+	subtitle_track_priority_text.value=current_template.sub_track_language_priority
 	reload_track_list()
 end
 
@@ -265,12 +355,13 @@ end
 
 function remove_file(index)
 	file_list.removeitem=index
+	track_list.removeitem="all"
 	table.remove(files,index)
 end
 
 function remove_track(file_index,track_index)
+	remove_track_by_id(files[file_index].tracks,get_selected_track_id())
 	track_list.removeitem=track_index
-	table.remove(files[file_index].tracks,track_index)
 	reload_track_list()
 end
 
@@ -324,13 +415,14 @@ function add_file_button:action()
 	then
 		directory,new_files=utils.parse_filedlg_value(add_file_dialog.value)
 		
-		prg_dlg.show_dialog(0,#new_files,"")
+		local progress_dialog=prg_dlg.get_dialog(0,#new_files,"")
+		progress_dialog:show()
 		for i=1,#new_files
 		do
-			prg_dlg.update(i,new_files[i])
+			prg_dlg.update(progress_dialog,i,new_files[i])
 			add_file(directory,new_files[i])
 		end
-		prg_dlg.hide_dialog()
+		progress_dialog:hide()
 	end
 	
 end
@@ -431,13 +523,14 @@ function process_button:action()
 		return
 	end
 	
-	prg_dlg.show_dialog(0,#files,"")
+	local progress_dialog=prg_dlg.get_dialog(0,#files,"loading")
+	progress_dialog:show()
 	
 	local external_sub_languages=utils.parse_sequence(current_template.external_sub_language,",")
 	
 	for var,file in ipairs(files)
 	do
-		prg_dlg.update(var,file.name)
+		prg_dlg.update(progress_dialog,var,file.name)
 		local filepath=file.dir..file.name
 		local cmd_list={
 			output={preference.mkvmerge_exec_path,
@@ -462,8 +555,11 @@ function process_button:action()
 					..value.." "
 		end
 		
-		assign_external_track_language(file.tracks)
-		for index,track in ipairs(get_valid_tracks(file.tracks))
+		local clone_tracks=duplicate_tracks(file.tracks)
+		assign_external_track_language(clone_tracks)
+		reassign_default_track(clone_tracks)
+		
+		for index,track in ipairs(get_valid_tracks(clone_tracks))
 		do
 			local track_filepath=""
 			if track.filename == nil
@@ -490,6 +586,12 @@ function process_button:action()
 					"--track-name "..track.id..":"..track.title)
 			end
 			
+			if track.default == "true"
+			then
+				concat_to_final(track_filepath,
+					"--default-track "..track.id)
+			end
+			
 			if track.type == "audio"
 			then
 				append(track_filepath,"--audio-tracks",track.id)
@@ -510,14 +612,46 @@ function process_button:action()
 		do
 			for option,values in pairs(options)
 			do
-				final_cmd=final_cmd..option.." "..table.concat(values)
+				if option ~= " "
+				then
+					final_cmd=final_cmd..option.." "..table.concat(values,",").." "
+				else
+					final_cmd=final_cmd..option.." "..table.concat(values," ").." "
+				end
 			end
 			final_cmd=final_cmd.." "..utils.path_wrap(filepath).." "
 		end
 		
 		print(final_cmd)
+		print("-------------")
+		
+		local result=io.popen(final_cmd,"r")
+		local cmd_output=result:read("*l")
+		while cmd_output ~= nil
+		do
+			print(cmd_output)
+			cmd_output=result:read("*l")
+		end
+		result:close()
+		
 	end
-	prg_dlg.hide_dialog()
+	progress_dialog:hide()
+	clear_file_button:action()
+end
+
+function about_button:action()
+	about_dialog=iup.dialog{
+		iup.vbox{
+			iup.label{title="Author: presisco"},
+			iup.hbox{
+				label("Project Site: "),
+				iup.text{size="200x",value="https://github.com/presisco/mkv_tracks_batch_merge",readonly="yes"}
+			};
+			margin="20x20"
+		};
+		title="about",size="QUARTERxQUARTER",shrink="yes"
+	}
+	about_dialog:show()
 end
 
 function template_list:action(text,item,state)
@@ -551,11 +685,28 @@ function prepare_ui()
 	iup.vbox{
 		iup.hbox{
 			label("template:"),
-			template_list,
-			label("subtitle languages"),
-			track_languange_text,
-			label("subtitle titles"),
-			sub_title_text;
+			template_list;
+			margin="0x5"
+		},
+		iup.hbox{
+			label("external track languages"),
+			ext_track_lan_text,
+			label("external track titles"),
+			ext_track_title_text;
+			margin="0x5"
+		},
+		iup.hbox{
+			label("audio track selection behavior"),
+			audio_track_behavior_text,
+			label("audio track priority"),
+			audio_track_priority_text;
+			margin="0x5"
+		},
+		iup.hbox{
+			label("subtitle track selection behavior"),
+			subtitle_track_behavior_text,
+			label("subtitle track priority"),
+			subtitle_track_priority_text;
 			margin="0x5"
 		},
 		iup.hbox{
@@ -581,7 +732,8 @@ function prepare_ui()
 			del_file_button,
 			clear_file_button,
 			del_track_button,
-			process_button;
+			process_button,
+			about_button;
 			margin="0x5"
 		};margin="10x10"
 	}; title="Video Name Formatter",size="HALFxHALF"}

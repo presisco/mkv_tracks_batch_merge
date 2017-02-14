@@ -78,11 +78,11 @@ function utils.parse_mkvmerge_identify(json_string)
 	
 	local get_bool_value=function(json_string,name)
 		local value=json_string:match("\""..name.."\":(.-),")
-		if value == true
+		if value == nil
 		then
-			return true
+			return "true"
 		else
-			return false
+			return value
 		end
 	end
 	
@@ -103,6 +103,7 @@ function utils.parse_mkvmerge_identify(json_string)
 		track.type=get_string_value(track_json,"type")
 		track.language=get_string_value(properties_json,"language")
 		track.title=get_string_value_nil(properties_json,"track_name")
+		track.default=get_bool_value(properties_json,"default_track")
 		table.insert(tracks,track)
 	end
 	return tracks
