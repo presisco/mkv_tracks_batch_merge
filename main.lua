@@ -736,7 +736,7 @@ function prepare_ui()
 			about_button;
 			margin="0x5"
 		};margin="10x10"
-	}; title="Video Name Formatter",size="HALFxHALF"}
+	}; title="MKV tracks batch merge",size="HALFxHALF"}
 	
 	main_dialog:map()
 
