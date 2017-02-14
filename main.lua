@@ -31,9 +31,9 @@ local current_sub_priority={}
 
 local default_template={
 	external_sub_language={
-		value="none",
+		value="chs,eng,und",
 		title="language for external subtitle",
-		hint="use ',' to seperate multiple languages,support ISO639-2",
+		hint="use ',' to seperate multiple languages,support ISO639-2,'und' for undefined language",
 		width="medium",
 		type="text"
 	},
@@ -52,9 +52,9 @@ local default_template={
 		choice={"all","match","first","none"}
 	},
 	audio_track_language_priority={
-		value="",
+		value="jpn,eng,chi,und",
 		title="audio track select priority",
-		hint="use ',' to seperate multiple languages,support ISO639-2",
+		hint="use ',' to seperate multiple languages,support ISO639-2,'und' for undefined language",
 		width="large",
 		type="text"
 	},
@@ -68,7 +68,7 @@ local default_template={
 	sub_track_language_priority={
 		value="",
 		title="subtitle track select priority",
-		hint="use ',' to seperate multiple languages,support ISO639-2",
+		hint="use ',' to seperate multiple languages,support ISO639-2,'und' for undefined language",
 		width="large",
 		type="text"
 	},
@@ -168,8 +168,21 @@ function assign_external_track_language(tracks)
 			else
 				track.default="false"
 			end
-			track.language=current_ext_sub_lan[lan_index]
-			track.title=current_ext_sub_title[title_index]
+			
+			if #current_ext_sub_lan > 0
+			then
+				track.language=current_ext_sub_lan[lan_index]
+			else
+				track.language="none"
+			end
+			
+			if #current_ext_sub_title > 0
+			then
+				track.title=current_ext_sub_title[title_index]
+			else
+				track.title=nil
+			end
+			
 			if lan_index < #current_ext_sub_lan
 			then
 				lan_index=lan_index+1
@@ -219,7 +232,9 @@ function get_track_list(filepath)
 --	print(json)
 	json=json:gsub("\n","")
 	json=json:gsub(" ","")
-	return utils.parse_mkvmerge_identify(json)
+	local tracks=utils.parse_mkvmerge_identify(json)
+--	utils.print_tracks(tracks)
+	return tracks
 end
 
 function fill_dropdown(list,data_table)
@@ -574,7 +589,7 @@ function process_button:action()
 				cmd_list.input[track_filepath] = {[" "]={""}}
 			end
 			
-			if track.language ~= "none"
+			if track.language ~= "und"
 			then
 				concat_to_final(track_filepath,
 					"--language "..track.id..":"..track.language)

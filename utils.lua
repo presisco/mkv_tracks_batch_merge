@@ -29,7 +29,7 @@ end
 
 function utils.get_top_priority(dataset,priority)
 	local top_priority=#priority+1
-	local top_priority_value=nil
+	local top_priority_value=""
 	for i=1,#dataset
 	do
 		local current_priority=#priority+1

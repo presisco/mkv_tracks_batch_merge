@@ -251,7 +251,6 @@ local fill_ui=function()
 	if not is_empty
 	then
 		prop_list.value=1
-		prop_selected(1)
 	end
 	
 	for name,setting in pairs(default_prop)
@@ -266,6 +265,8 @@ local fill_ui=function()
 			dropdown.value=1
 		end
 	end
+	
+	prop_selected(1)
 end
 
 local start_ui=function()

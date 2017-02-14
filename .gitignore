@@ -49,3 +49,4 @@ preference.conf
 *.conf
 lua
 test.lua
+*.zip
