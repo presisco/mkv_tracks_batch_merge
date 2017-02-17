@@ -1,4 +1,174 @@
+local lfs=require "lfs"
+
 local utils={}
+
+local supported_content_type_set={
+	video=true,
+	audio=true,
+	subtitles=true,
+	buttons=true,
+	Chapters=true,
+	Tags=true,
+	Info=true
+}
+
+function utils.get_xml_type(xml_string)
+	return xml_string:match("<(%a+)>")
+end
+
+function utils.is_valid_xml_file(xml_string)
+	local root_element=utils.get_xml_type(xml_string)
+	if root_element == "Chapters" 
+		or root_element == "Tags" 
+		or root_element == "Info"
+	then
+		return true
+	else
+		return false
+	end
+end
+
+function utils.get_content_summary(filepath)
+	local cmd=preference.mkvmerge_exec_path.." -i -F json --ui-language en "..utils.path_wrap(filepath)
+--	print(cmd)
+	local result=io.popen(cmd,"r")
+	local json=result:read("*a")
+	result:close()
+--	print(json)
+	if utils.is_valid_file_for_mkv(json)
+	then
+		return utils.parse_mkvmerge_identify(json)
+	else
+		local file_stream=io.open(filepath,"r")
+		local file_string=file_stream:read("*a")
+		if utils.is_valid_file_for_mkv(file_string)
+		then
+			return utils.get_xml_type(file_string)
+		else
+			return "unknown"
+		end
+	end
+end
+
+function utils.build_file_list(root_dir,on_update)
+	local raw_file_list={}
+	local ext_file_list={
+		audio={},
+		subtitles={},
+		Chatpers={},
+		Tags={},
+		Info={}
+	}
+	
+	local file_contains_video=function(tracks)
+		for i=1,#tracks
+		do
+			if tracks[i].type == "video"
+			then
+				return true
+			end
+		end
+		return false
+	end
+	
+	local file_scanner=function(dir)
+		for file in lfs.dir(root_dir)
+		do
+			if file ~= "." and file ~= ".."
+			then
+				local filepath=root_dir.."\\"..file
+				if lfs.attributes(filepath) ~= "directory"
+				then
+					if on_update ~= nil
+					then
+						on_update(filepath)
+					end
+					local props=utils.get_content_summary(filepath)
+					if type(props) == "table"
+					then
+						if file_contains_video(props)
+						then
+							table.insert(raw_file_list,{dir=root_dir,name=file,tracks=props})
+						else
+							table.insert(ext_file_list[props[1].type],{dir=root_dir,filename=file,tracks=props})
+						end
+					elseif props ~= "unknown"
+					then
+						table.insert(ext_file_list[props[1].type],{dir=root_dir,filename=file,tracks={{type=props}}})
+					end
+				else
+					file_scanner(filepath)
+				end
+			end
+		end
+	end
+	
+	local file_cursor={}
+	local file_per_video={}
+	for type,var in pairs(ext_file_list)
+	do
+		file_per_video[type]=math.ceil(#ext_file_list[type]/#raw_file_list)
+		file_cursor[type]=1
+	end
+	
+	for index,video_file in ipairs(raw_file_list)
+	do
+		for type,list in pairs{ext_file_list}
+		do
+			for i=1,file_per_video[type]
+			do
+				local ext_file=list[file_cursor[type]]
+				for j,track in ext_file.tracks
+				do	
+					track.dir=ext_file.dir
+					track.filename=ext_file.filename
+					table.insert(video_file.tracks,track)
+				end
+				file_cursor[type]=file_cursor[type]+1
+			end
+		end
+	end
+	
+	return raw_file_list
+end
+
+function utils.remove_track_by_id(tracks,target_id)
+	for index,props in ipairs(tracks)
+	do
+		if props.id == target_id
+		then
+			table.remove(tracks,index)
+			return
+		end
+	end
+end
+
+function utils.duplicate_tracks(tracks)
+	local clone={}
+	
+	for index,props in ipairs(tracks)
+	do
+		local clone_props={}
+		for name,value in pairs(props)
+		do
+			clone_props[name]=value
+		end
+		table.insert(clone,clone_props)
+	end
+	
+	return clone
+end
+
+function utils.get_file_extension(filename)
+	local reversed=filename:reverse()
+	local ext_index=reversed:find(".",1,true)
+	if ext_index == nil
+	then
+		return ""
+	else
+		return filename:sub(filename:len()+2-ext_index,filename:len())
+	end
+end
 
 function utils.rename_to_mkv(filepath)
 	local reversed=filepath:reverse()
@@ -54,6 +224,16 @@ function utils.path_wrap(path)
 	return "\""..path.."\""
 end
 
+function utils.is_valid_file_for_mkv(json_string)
+	if json_string:match("\"recognized\": true") ~= nil
+		and json_string:match("\"recognized\": true") ~= nil
+	then
+		return true
+	else
+		return false
+	end
+end
+
 function utils.parse_mkvmerge_identify(json_string)
 	local get_string_value=function(json_string,name)
 		local value=json_string:match("\""..name.."\":\"(.-)\"")
@@ -87,6 +267,9 @@ function utils.parse_mkvmerge_identify(json_string)
 	end
 	
 	local tracks={}
+	
+	json_string=json_string:gsub("\n","")
+	json_string=json_string:gsub(" ","")
 	
 	json_string=json_string:match("\"tracks\":%[(.*)%]")
 	json_string="@"..json_string:gsub("%],\"warnings\":%[","").."/"
@@ -182,6 +365,31 @@ function utils.parse_list_value(value)
 	end
 	
 	return selected_index
+end
+
+function utils.set_insert(set,value)
+	if type(value) == "table"
+	then
+		for element,var in pairs(value)
+		do
+			set[element]=true
+		end
+	else
+		set[value]=true
+	end
+end
+
+function utils.set_contains(set,value)
+	if set[value] ~= nil
+	then
+		return true
+	else
+		return false
+	end
+end
+
+function utils.set_remove(set,value)
+	set[value]=nil
 end
 
 return utils

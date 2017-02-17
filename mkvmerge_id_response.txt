@@ -1,0 +1,81 @@
+*.xml:
+{
+  "container": {
+    "recognized": false,
+    "supported": false
+  },
+  "errors": [],
+  "file_name": "E:\\codes\\lua Codes\\MKV_Sub_Batch_Merge\\main.lua",
+  "identification_format_version": 6,
+  "warnings": []
+}
+*.mkv:
+{
+  "attachments": [],
+  "chapters": [],
+  "container": {
+    "properties": {
+      "container_type": 17,
+      "date_local": "2016-11-27T14:01:35+08:00",
+      "date_utc": "2016-11-27T06:01:35Z",
+      "duration": 4983680000000,
+      "is_providing_timecodes": true,
+      "muxing_application": "libebml v1.3.4 + libmatroska v1.4.5",
+      "segment_uid": "bc7543d11534d46690be2761283b1103",
+      "title": "APEX The Story of the Hypercar 2016 720p WEBRip 600MB Ganool is",
+      "writing_application": "mkvmerge v9.5.0 ('Quiet Fire') 32bit"
+    },
+    "recognized": true,
+    "supported": true,
+    "type": "Matroska"
+  },
+  "errors": [],
+  "file_name": "F:\\Videos\\APEX.The.Story.of.the.Hypercar.2016.720p.WEBRip.600MB.Ganool.is.mkv",
+  "global_tags": [],
+  "identification_format_version": 6,
+  "track_tags": [],
+  "tracks": [
+    {
+      "codec": "MPEG-4p10/AVC/h.264",
+      "id": 0,
+      "properties": {
+        "codec_id": "V_MPEG4/ISO/AVC",
+        "codec_private_data": "01640029ffe1001867640029acc86014016ec04400000fa40003a9823c60c66801000568e97b2c8b",
+        "codec_private_length": 40,
+        "default_duration": 33366666,
+        "default_track": true,
+        "display_dimensions": "1280x720",
+        "enabled_track": true,
+        "forced_track": false,
+        "language": "und",
+        "minimum_timestamp": 0,
+        "number": 1,
+        "packetizer": "mpeg4_p10_video",
+        "pixel_dimensions": "1280x720",
+        "uid": 17873123895352762529
+      },
+      "type": "video"
+    },
+    {
+      "codec": "AAC",
+      "id": 1,
+      "properties": {
+        "audio_channels": 2,
+        "audio_sampling_frequency": 24000,
+        "codec_id": "A_AAC",
+        "codec_private_data": "131056e598",
+        "codec_private_length": 5,
+        "default_duration": 42666666,
+        "default_track": true,
+        "enabled_track": true,
+        "forced_track": false,
+        "language": "eng",
+        "minimum_timestamp": 0,
+        "number": 2,
+        "uid": 1782222106039051183
+      },
+      "type": "audio"
+    }
+  ],
+  "warnings": []
+}

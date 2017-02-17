@@ -50,3 +50,8 @@ preference.conf
 lua
 test.lua
 *.zip
+*.xml
+*.h264
+*.srt
+*.aac
+*.ass

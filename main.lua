@@ -19,7 +19,7 @@ local templates={}
 {
 	dir=directory,
 	name=new_files[i],
-	language=ext_track_lan_text.value}
+	language=ext_sub_lan_text.value}
 ]]
 local files={}
 
@@ -38,6 +38,20 @@ local default_template={
 		type="text"
 	},
 	external_sub_title={
+		value="default",
+		title="title for external subtitle",
+		hint="use ',' to seperate multiple titles",
+		width="medium",
+		type="text"
+	},
+	external_audio_language={
+		value="chs,eng,und",
+		title="language for external audio",
+		hint="use ',' to seperate multiple languages,support ISO639-2,'und' for undefined language",
+		width="medium",
+		type="text"
+	},
+	external_audio_title={
 		value="default",
 		title="title for external subtitle",
 		hint="use ',' to seperate multiple titles",
@@ -95,8 +109,10 @@ local file_list=iup.list{expand="yes",multiple="no"}
 local track_list=iup.list{expand="yes",multiple="no"}
 
 local template_list=iup.list{size="100x",dropdown="yes",multiple="no"}
-local ext_track_lan_text=iup.text{size="160x",readonly="yes"}
-local ext_track_title_text=iup.text{size="160x",readonly="yes"}
+local ext_sub_lan_text=iup.text{size="160x",readonly="yes"}
+local ext_sub_title_text=iup.text{size="160x",readonly="yes"}
+local ext_audio_lan_text=iup.text{size="160x",readonly="yes"}
+local ext_audio_title_text=iup.text{size="160x",readonly="yes"}
 local audio_track_behavior_text=iup.text{size="60x",readonly="yes"}
 local audio_track_priority_text=iup.text{size="160x",readonly="yes"}
 local subtitle_track_behavior_text=iup.text{size="60x",readonly="yes"}
@@ -112,6 +128,7 @@ local clear_file_button=iup.button{title="clear all"}
 local del_file_button=iup.button{title="delete selected file"}
 local del_track_button=iup.button{title="delete selected track"}
 local add_file_button=iup.button{title="add videos"}
+local add_dir_button=iup.button{title="add directory"}
 local add_track_button=iup.button{title="add tracks"}
 local add_track_to_selected_button=iup.button{title="add tracks to selected video"}
 local process_button=iup.button{title="process"}
@@ -122,33 +139,6 @@ local about_button=iup.button{title="about"}
 function get_selected_track_id()
 	local text=track_list[track_list.value]
 	return text:match("id: (.-),")
-end
-
-function remove_track_by_id(tracks,target_id)
-	for index,props in ipairs(tracks)
-	do
-		if props.id == target_id
-		then
-			table.remove(tracks,index)
-			return
-		end
-	end
-end
-
-function duplicate_tracks(tracks)
-	local clone={}
-	
-	for index,props in ipairs(tracks)
-	do
-		local clone_props={}
-		for name,value in pairs(props)
-		do
-			clone_props[name]=value
-		end
-		table.insert(clone,clone_props)
-	end
-	
-	return clone
 end
 
 function assign_external_track_language(tracks)
@@ -223,20 +213,6 @@ function reassign_default_track(tracks)
 	end
 end
 
-function get_track_list(filepath)
-	local cmd=preference.mkvmerge_exec_path.." -i -F json --ui-language en "..utils.path_wrap(filepath)
---	print(cmd)
-	local result=io.popen(cmd,"r")
-	local json=result:read("*a")
-	result:close()
---	print(json)
-	json=json:gsub("\n","")
-	json=json:gsub(" ","")
-	local tracks=utils.parse_mkvmerge_identify(json)
---	utils.print_tracks(tracks)
-	return tracks
-end
-
 function fill_dropdown(list,data_table)
 	for name,props in pairs(data_table)
 	do
@@ -250,8 +226,17 @@ function label(text)
 end
 
 function add_file(directory,filename)
-	file_list.appenditem=filename
-	table.insert(files,{dir=directory,name=filename,tracks=get_track_list(directory..filename)})
+	local cmd=preference.mkvmerge_exec_path.." -i -F json --ui-language en "..utils.path_wrap(directory..filename)
+--	print(cmd)
+	local result=io.popen(cmd,"r")
+	local json=result:read("*a")
+	result:close()
+--	print(json)
+	if utils.is_valid_file_for_mkv(json)
+	then
+		file_list.appenditem=filename
+		table.insert(files,{dir=directory,name=filename,tracks=utils.parse_mkvmerge_identify(json)})
+	end
 end
 
 function used_languages(type,tracks)
@@ -312,7 +297,7 @@ function get_valid_tracks(tracks)
 end
 
 function load_track_list(index)
-	local clone_tracks=duplicate_tracks(files[index].tracks)
+	local clone_tracks=utils.duplicate_tracks(files[index].tracks)
 	assign_external_track_language(clone_tracks)
 	reassign_default_track(clone_tracks)
 	
@@ -354,8 +339,12 @@ function template_selected(index)
 	current_sub_priority=utils.parse_sequence(current_template.sub_track_language_priority,",")
 	current_ext_sub_lan=utils.parse_sequence(current_template.external_sub_language,",")
 	current_ext_sub_title=utils.parse_sequence(current_template.external_sub_title,",")
-	ext_track_lan_text.value=current_template.external_sub_language
-	ext_track_title_text.value=current_template.external_sub_title
+	current_ext_audio_lan=utils.parse_sequence(current_template.external_audio_language,",")
+	current_ext_audio_title=utils.parse_sequence(current_template.external_audio_title,",")
+	ext_sub_lan_text.value=current_template.external_sub_language
+	ext_sub_title_text.value=current_template.external_sub_title
+	ext_audio_lan_text.value=current_template.external_audio_language
+	ext_audio_lan_text.value=current_template.external_audio_language
 	audio_track_behavior_text.value=current_template.audio_track_select_behavior
 	audio_track_priority_text.value=current_template.audio_track_language_priority
 	subtitle_track_behavior_text.value=current_template.sub_track_select_behavior
@@ -375,7 +364,7 @@ function remove_file(index)
 end
 
 function remove_track(file_index,track_index)
-	remove_track_by_id(files[file_index].tracks,get_selected_track_id())
+	utils.remove_track_by_id(files[file_index].tracks,get_selected_track_id())
 	track_list.removeitem=track_index
 	reload_track_list()
 end
@@ -442,6 +431,32 @@ function add_file_button:action()
 	
 end
 
+function add_dir_button:action()
+	local add_dir_dialog=iup.filedlg{multiplefiles="yes",dialogtype="dir"}
+	add_dir_dialog:popup()
+	local status=add_dir_dialog.status
+	
+	if status == "0"
+	then
+		local progress_dialog=prg_dlg.get_dialog(0,1,"scanning")
+		local on_update=function(text)
+			prg_dlg.update(progress_dialog,0,text)
+		end
+		progress_dialog:show()
+		
+		local new_dir=add_dir_dialog.value
+		local new_files=utils.build_file_list(new_dir,on_update)
+		for index,file in ipairs(new_files)
+		do
+			file_list.appenditem=file.name
+			table.insert(files,file)
+		end
+		progress_dialog:hide()
+		--local min_depth=utils.analyse_file_tree(file_tree)
+		reload_track_list()
+	end
+end
+
 function add_track_button:action()
 	if #files == 0
 	then
@@ -460,6 +475,12 @@ function add_track_button:action()
 		local file_index=1
 		for i=1,#new_files
 		do
+			
+			local cmd=preference.mkvmerge_exec_path.." -i -F json --ui-language en "..utils.path_wrap(directory..filename)
+--			print(cmd)
+			local result=io.popen(cmd,"r")
+			local json=result:read("*a")
+			
 			local tracks_info=get_track_list(directory..new_files[i])
 			
 			for var,track_info in ipairs(tracks_info)
@@ -570,7 +591,7 @@ function process_button:action()
 					..value.." "
 		end
 		
-		local clone_tracks=duplicate_tracks(file.tracks)
+		local clone_tracks=utils.duplicate_tracks(file.tracks)
 		assign_external_track_language(clone_tracks)
 		reassign_default_track(clone_tracks)
 		
@@ -704,10 +725,17 @@ function prepare_ui()
 			margin="0x5"
 		},
 		iup.hbox{
-			label("external track languages"),
-			ext_track_lan_text,
-			label("external track titles"),
-			ext_track_title_text;
+			label("external subtitle languages"),
+			ext_sub_lan_text,
+			label("external subtitle titles"),
+			ext_sub_title_text;
+			margin="0x5"
+		},
+		iup.hbox{
+			label("external audio languages"),
+			ext_audio_lan_text,
+			label("external audio titles"),
+			ext_audio_title_text;
 			margin="0x5"
 		},
 		iup.hbox{
@@ -742,6 +770,7 @@ function prepare_ui()
 		};
 		iup.hbox{
 			add_file_button,
+			add_dir_button,
 			add_track_button,
 			add_track_to_selected_button,
 			del_file_button,
