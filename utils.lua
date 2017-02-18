@@ -266,6 +266,17 @@ function utils.is_valid_file_for_mkv(json_string)
 	end
 end
 
+function utils.tracks_contain_video(tracks)
+	for i=1,#tracks
+	do
+		if tracks[i].type == "video"
+		then
+			return true
+		end
+	end
+	return false
+end
+
 function utils.parse_mkvmerge_identify(json_string)
 	local get_string_value=function(json_string,name)
 		local value=json_string:match("\""..name.."\":\"(.-)\"")

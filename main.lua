@@ -9,7 +9,7 @@ local list_column_seperator=" -> "
 
 local default_template={
 	external_sub_language={
-		value="chs,eng,und",
+		value="chi,eng,und",
 		title="language for external subtitle",
 		hint="use ',' to seperate multiple languages,support ISO639-2,'und' for undefined language",
 		width="medium",
@@ -23,7 +23,7 @@ local default_template={
 		type="text"
 	},
 	external_audio_language={
-		value="chs,eng,und",
+		value="chi,eng,und",
 		title="language for external audio",
 		hint="use ',' to seperate multiple languages,support ISO639-2,'und' for undefined language",
 		width="medium",
@@ -31,7 +31,7 @@ local default_template={
 	},
 	external_audio_title={
 		value="default",
-		title="title for external subtitle",
+		title="title for external audio",
 		hint="use ',' to seperate multiple titles",
 		width="medium",
 		type="text"
@@ -124,15 +124,13 @@ local preference={
 	selected_template=1
 }
 
-local is_processing=false
-local is_scanning_dir=false
-
 -- UI defination
 
 local main_dialog=nil
 
 local file_list=iup.list{expand="yes",multiple="no"}
 local track_list=iup.list{expand="yes",multiple="no"}
+local track_list_mapping={}
 
 local template_list=iup.list{size="100x",dropdown="yes",multiple="no"}
 local ext_sub_lan_text=iup.text{size="160x",readonly="yes"}
@@ -168,6 +166,7 @@ function get_selected_track_id()
 end
 
 function adjust_tracks_attributes(tracks)
+	track_list_mapping={}
 	local helper={}
 	local filtered_tracks={}
 	local exist_languages={
@@ -178,6 +177,8 @@ function adjust_tracks_attributes(tracks)
 		audio="",
 		subtitles=""
 	}
+	
+--	utils.print_tracks(tracks)
 	
 	for name,attr_set in pairs(current_attr_list)
 	do
@@ -198,39 +199,36 @@ function adjust_tracks_attributes(tracks)
 	do
 		if track.type == "audio" or track.type == "subtitles"
 		then
-			if current_attr_list[track.type].default == "first external"
+			if track.filename ~= nil
 			then
-				if track.filename ~= nil
+				if current_attr_list[track.type].default == "first external"
+					and not helper[track.type].has_default
 				then
-					if not helper[track.type].has_default
+					track.default="true"
+					if helper[track.type].internal_default_index > 0
 					then
-						track.default="true"
-						if helper[track.type].internal_default_index > 0
-						then
-							tracks[helper[track.type].internal_default_index].default="false"
-						end
-						helper[track.type].has_default=true
-					else
-						track.default="false"
+						tracks[helper[track.type].internal_default_index].default="false"
 					end
+					helper[track.type].has_default=true
 				else
-					helper[track.type].internal_default_index=index
+					track.default="false"
+				end
+				
+				track.language=current_attr_list[track.type].ext_lan[helper[track.type].cursor.ext_lan]
+				track.title=current_attr_list[track.type].ext_title[helper[track.type].cursor.ext_title]
+				
+				for attr_name,var in pairs(helper[track.type].cursor)
+				do
+					if var < #current_attr_list[track.type][attr_name]
+					then
+						helper[track.type]["cursor"][attr_name]=var+1
+					end
 				end
 			else
+				helper[track.type].internal_default_index=index
 			end
-			
-			track.language=current_attr_list[track.type].ext_lan[helper[track.type].cursor.ext_lan]
-			track.title=current_attr_list[track.type].ext_title[helper[track.type].cursor.ext_title]
 			
 			table.insert(exist_languages[track.type],track.language)
-			
-			for attr_name,var in pairs(helper[track.type].cursor)
-			do
-				if var < #current_attr_list[track.type][attr_name]
-				then
-					helper[track.type]["cursor"][attr_name]=var+1
-				end
-			end
 		end
 	end
 	
@@ -242,19 +240,20 @@ function adjust_tracks_attributes(tracks)
 		elseif current_attr_list[content_type].behavior == "match"
 		then
 			language_filters[content_type]=table.concat(current_attr_list.audio.priority,",")
-		else
+		elseif current_attr_list[content_type].behavior == "all"
+		then
 			language_filters[content_type]=table.concat(exist_languages[content_type],",")..",und"
+		else
+			language_filters[content_type]="none"
 		end
 	end
 	
 	for i,track in ipairs(tracks)
 	do
-		if language_filters[track.type] == nil 
+		if language_filters[track.type] == nil or language_filters[track.type]:match(track.language)
 		then
 			table.insert(filtered_tracks,track)
-		elseif language_filters[track.type]:match(track.language)
-		then
-			table.insert(filtered_tracks,track)
+			table.insert(track_list_mapping,i)
 		end
 	end
 	
@@ -271,20 +270,6 @@ end
 
 function label(text)
 	return iup.label{title=text;padding="5x0"}
-end
-
-function add_file(directory,filename)
-	local cmd=preference.mkvmerge_exec_path.." -i -F json --ui-language en "..utils.path_wrap(directory..filename)
---	print(cmd)
-	local result=io.popen(cmd,"r")
-	local json=result:read("*a")
-	result:close()
---	print(json)
-	if utils.is_valid_file_for_mkv(json)
-	then
-		file_list.appenditem=filename
-		table.insert(files,{dir=directory,name=filename,tracks=utils.parse_mkvmerge_identify(json)})
-	end
 end
 
 function used_languages(type,tracks)
@@ -372,7 +357,7 @@ function remove_file(index)
 end
 
 function remove_track(file_index,track_index)
-	utils.remove_track_by_id(files[file_index].tracks,get_selected_track_id())
+	table.remove(files[file_index].tracks,track_list_mapping[track_index])
 	track_list.removeitem=track_index
 	reload_track_list()
 end
@@ -380,6 +365,71 @@ end
 function init_template_dropdown()
 	fill_dropdown(template_list,templates)
 	template_selected(1)
+end
+
+function add_tracks(directory,new_files,target_file)
+	local progress_dialog=prg_dlg.get_dialog(0,#new_files,"")
+	progress_dialog:show()
+	
+	local track_per_file=math.ceil(#new_files/#files)
+	local file_index=1
+	if target_file ~= nil
+	then
+		file_index=target_file
+	end
+	
+	for i=1,#new_files
+	do
+		prg_dlg.update(progress_dialog,i,new_files[i])
+		
+		local tracks_info=utils.get_content_summary(preference.mkvmerge_exec_path,directory..new_files[i])
+		
+		if type(tracks_info) == "table"
+		then
+			for var,track_info in ipairs(tracks_info)
+			do
+				track_info.dir=directory
+				track_info.filename=new_files[i]
+				table.insert(files[file_index].tracks,track_info)
+			end
+		elseif tracks_info ~= "unknown"
+		then
+			table.insert(files[file_index].tracks,{dir=directory,filename=new_files[i],type=tracks_info})
+		end
+		
+		if target_file == nil and i%track_per_file == 0
+		then
+			file_index=file_index+1
+		end
+	end
+	progress_dialog:hide()
+	single_instance_tasks.add_tracks.running=false
+	reload_track_list()
+end
+
+function add_files(directory,new_files)
+	local progress_dialog=prg_dlg.get_dialog(0,#new_files,"")
+	progress_dialog:show()
+	for i=1,#new_files
+	do
+		prg_dlg.update(progress_dialog,i,new_files[i])
+		local filename=new_files[i]
+		local cmd=preference.mkvmerge_exec_path.." -i -F json --ui-language en "..utils.path_wrap(directory..filename)
+		local result=io.popen(cmd,"r")
+		local json=result:read("*a")
+		result:close()
+		if utils.is_valid_file_for_mkv(json)
+		then
+			local contained_tracks=utils.parse_mkvmerge_identify(json)
+			if utils.tracks_contain_video(contained_tracks)
+			then
+				file_list.appenditem=filename
+				table.insert(files,{dir=directory,name=filename,tracks=contained_tracks})
+			end
+		end
+	end
+	progress_dialog:hide()
+	single_instance_tasks.add_files.running=false
 end
 
 function scan_dir(root_dir)
@@ -404,7 +454,7 @@ function scan_dir(root_dir)
 	end
 	progress_dialog:hide()
 	reload_track_list()
-	is_scanning_dir=false
+	single_instance_tasks.add_dir.running=false
 end
 
 function process_list()
@@ -534,6 +584,40 @@ function process_list()
 	clear_file_button:action()
 end
 
+local single_instance_tasks={
+	add_files={func=add_files,description="add files"},
+	add_tracks={func=add_tracks,description="add tracks"},
+	add_dir={func=scan_dir,description="add directory"}
+}
+
+function run_single_instance_task(task_name,...)
+	local can_run=true
+	local current_running=""
+	for name,attrs in pairs(single_instance_tasks)
+	do
+		if attrs.running == nil
+		then
+			attrs.running = false
+		end
+		if attrs.running
+		then
+			can_run=false
+			current_running=attrs.description
+			break;
+		end
+	end
+	
+	if not can_run
+	then
+		iup.Message("Error","current running: "..current_running..
+			", cannot run: "..single_instance_tasks[task_name].description)
+		return
+	else
+		local new_task=coroutine.create(single_instance_tasks[task_name].func)
+		coroutine.resume(new_task,...)
+	end
+end
+
 -- callback func
 
 function config_template_button:action()
@@ -577,16 +661,7 @@ function add_file_button:action()
 	
 	if status == "0"
 	then
-		directory,new_files=utils.parse_filedlg_value(add_file_dialog.value)
-		
-		local progress_dialog=prg_dlg.get_dialog(0,#new_files,"")
-		progress_dialog:show()
-		for i=1,#new_files
-		do
-			prg_dlg.update(progress_dialog,i,new_files[i])
-			add_file(directory,new_files[i])
-		end
-		progress_dialog:hide()
+		run_single_instance_task("add_files",utils.parse_filedlg_value(add_file_dialog.value))
 	end
 	
 end
@@ -598,8 +673,7 @@ function add_dir_button:action()
 	
 	if status == "0"
 	then
-		scan_task=coroutine.create(scan_dir)
-		coroutine.resume(scan_task,add_dir_dialog.value)
+		run_single_instance_task("add_dir",add_dir_dialog.value)
 	end
 end
 
@@ -616,34 +690,8 @@ function add_track_button:action()
 	
 	if status == "0"
 	then
-		directory,new_files=utils.parse_filedlg_value(add_file_dialog.value)
-		local track_per_file=math.ceil(#new_files/#files)
-		local file_index=1
-		for i=1,#new_files
-		do
-			
-			local cmd=preference.mkvmerge_exec_path.." -i -F json --ui-language en "..utils.path_wrap(directory..filename)
---			print(cmd)
-			local result=io.popen(cmd,"r")
-			local json=result:read("*a")
-			
-			local tracks_info=get_track_list(directory..new_files[i])
-			
-			for var,track_info in ipairs(tracks_info)
-			do
-				track_info.dir=directory
-				track_info.filename=new_files[i]
-				table.insert(files[file_index].tracks,track_info)
-			end
-			
-			if i%track_per_file == 0
-			then
-				file_index=file_index+1
-			end
-		end
+		run_single_instance_task("add_tracks",utils.parse_filedlg_value(add_file_dialog.value))
 	end
-	
-	reload_track_list()
 end
 
 function add_track_to_selected_button:action()
@@ -659,22 +707,9 @@ function add_track_to_selected_button:action()
 	
 	if status == "0"
 	then
-		directory,new_files=utils.parse_filedlg_value(add_file_dialog.value)
-		local track_per_file=math.ceil(#new_files/#files)
-		for i=1,#new_files
-		do
-			local tracks_info=get_track_list(directory..new_files[i])
-			
-			for var,track_info in ipairs(tracks_info)
-			do
-				track_info.dir=directory
-				track_info.filename=new_files[i]
-				table.insert(files[tonumber(file_list.value)].tracks,track_info)
-			end
-		end
+		local directory,new_files=utils.parse_filedlg_value(add_file_dialog.value)
+		run_single_instance_task("add_tracks",directory,new_files,tonumber(file_list.value))
 	end
-	
-	reload_track_list()
 end
 
 function del_file_button:action()
