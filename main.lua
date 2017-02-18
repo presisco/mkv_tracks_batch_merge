@@ -7,28 +7,6 @@ local utils=require "utils"
 
 local list_column_seperator=" -> "
 
--- Dataset
-
-local templates={}
---[[
-{
-	dir=directory,
-	name=filename,
-	tracks={}
-}
-{
-	dir=directory,
-	name=new_files[i],
-	language=ext_sub_lan_text.value}
-]]
-local files={}
-
-local current_ext_sub_lan={}
-local current_ext_sub_title={}
-local current_template={}
-local current_audio_priority={}
-local current_sub_priority={}
-
 local default_template={
 	external_sub_language={
 		value="chs,eng,und",
@@ -92,6 +70,51 @@ local default_template={
 		width="medium",
 		type="dropdown",
 		choice={"first external","auto"}
+	},
+	default_audio={
+		value="first external",
+		title="default audio track behavior",
+		width="medium",
+		type="dropdown",
+		choice={"first external","auto"}
+	}
+}
+
+-- Dataset
+
+local templates={}
+--[[
+{
+	dir=directory,
+	name=filename,
+	tracks={}
+}
+{
+	dir=directory,
+	name=new_files[i],
+	language=ext_sub_lan_text.value}
+]]
+local files={}
+
+local current_ext_sub_lan={}
+local current_ext_sub_title={}
+local current_template={}
+local current_audio_priority={}
+local current_sub_priority={}
+local current_attr_list={
+	audio={
+		ext_lan={},
+		ext_title={},
+		priority={},
+		default=default_template.default_audio,
+		behavior=default_template.audio_track_select_behavior
+	},
+	subtitles={
+		ext_lan={},
+		ext_title={},
+		priority={},
+		default=default_template.default_subtitle,
+		behavior=default_template.sub_track_select_behavior
 	}
 }
 
@@ -100,6 +123,9 @@ local preference={
 	output_dir="please select",
 	selected_template=1
 }
+
+local is_processing=false
+local is_scanning_dir=false
 
 -- UI defination
 
@@ -141,76 +167,98 @@ function get_selected_track_id()
 	return text:match("id: (.-),")
 end
 
-function assign_external_track_language(tracks)
-	local lan_index=1;
-	local title_index=1;
-	local default_set=false
+function adjust_tracks_attributes(tracks)
+	local helper={}
+	local filtered_tracks={}
+	local exist_languages={
+		audio={},
+		subtitles={}
+	}
+	local language_filters={
+		audio="",
+		subtitles=""
+	}
 	
-	for var,track in ipairs(tracks)
+	for name,attr_set in pairs(current_attr_list)
 	do
-		if track.filename ~= nil and track.type == "subtitles"
-		then
-			if current_template.default_subtitle == "first external"
-				and not default_set
+		helper[name]={}
+		helper[name]["cursor"]={}
+		for attr_name,var in pairs(attr_set)
+		do
+			if type(var) == "table"
 			then
-				track.default="true"
-				default_set=true
-			else
-				track.default="false"
-			end
-			
-			if #current_ext_sub_lan > 0
-			then
-				track.language=current_ext_sub_lan[lan_index]
-			else
-				track.language="none"
-			end
-			
-			if #current_ext_sub_title > 0
-			then
-				track.title=current_ext_sub_title[title_index]
-			else
-				track.title=nil
-			end
-			
-			if lan_index < #current_ext_sub_lan
-			then
-				lan_index=lan_index+1
-			end
-			if title_index < #current_ext_sub_title
-			then
-				title_index=title_index+1
+				helper[name]["cursor"][attr_name]=1
 			end
 		end
-	end
-end
-
-function reassign_default_track(tracks)
-	if current_template.default_subtitle == "auto"
-	then
-		return;
-	end
-	
-	local has_external_sub=false
-	
-	for index,track in ipairs(tracks)
-	do
-		if track.filename ~= nil and track.type == "subtitles"
-		then
-			has_external_sub=true
-			break;
-		end
+		helper[name].has_default=false
+		helper[name].internal_default_index=0
 	end
 	
 	for index,track in ipairs(tracks)
 	do
-		if track.filename == nil 
-			and track.type == "subtitles"
-			and has_external_sub
+		if track.type == "audio" or track.type == "subtitles"
 		then
-			track.default="false"
+			if current_attr_list[track.type].default == "first external"
+			then
+				if track.filename ~= nil
+				then
+					if not helper[track.type].has_default
+					then
+						track.default="true"
+						if helper[track.type].internal_default_index > 0
+						then
+							tracks[helper[track.type].internal_default_index].default="false"
+						end
+						helper[track.type].has_default=true
+					else
+						track.default="false"
+					end
+				else
+					helper[track.type].internal_default_index=index
+				end
+			else
+			end
+			
+			track.language=current_attr_list[track.type].ext_lan[helper[track.type].cursor.ext_lan]
+			track.title=current_attr_list[track.type].ext_title[helper[track.type].cursor.ext_title]
+			
+			table.insert(exist_languages[track.type],track.language)
+			
+			for attr_name,var in pairs(helper[track.type].cursor)
+			do
+				if var < #current_attr_list[track.type][attr_name]
+				then
+					helper[track.type]["cursor"][attr_name]=var+1
+				end
+			end
 		end
 	end
+	
+	for content_type,filter_text in pairs(language_filters)
+	do
+		if current_attr_list[content_type].behavior == "first"
+		then
+			language_filters[content_type]=utils.get_top_priority(exist_languages[content_type],current_attr_list.audio.priority)
+		elseif current_attr_list[content_type].behavior == "match"
+		then
+			language_filters[content_type]=table.concat(current_attr_list.audio.priority,",")
+		else
+			language_filters[content_type]=table.concat(exist_languages[content_type],",")..",und"
+		end
+	end
+	
+	for i,track in ipairs(tracks)
+	do
+		if language_filters[track.type] == nil 
+		then
+			table.insert(filtered_tracks,track)
+		elseif language_filters[track.type]:match(track.language)
+		then
+			table.insert(filtered_tracks,track)
+		end
+	end
+	
+	return filtered_tracks
 end
 
 function fill_dropdown(list,data_table)
@@ -251,57 +299,10 @@ function used_languages(type,tracks)
 	return language_list
 end
 
-function get_valid_tracks(tracks)
-	local used_audio_languages=used_languages("audio",tracks)
-	local used_subtitle_languages=used_languages("subtitles",tracks)
-	
-	local audio_language=""
-	if current_template.audio_track_select_behavior == "first"
-	then
-		audio_language=utils.get_top_priority(used_audio_languages,current_audio_priority)
-	elseif current_template.audio_track_select_behavior == "match"
-	then
-		audio_language=table.concat(current_audio_priority,",")
-	elseif current_template.audio_track_select_behavior == "all"
-	then
-		audio_language=table.concat(used_audio_languages,",")..",none"
-	end
-	
-	local subtitle_language=""
-	if current_template.sub_track_select_behavior == "first"
-	then
-		subtitle_language=utils.get_top_priority(used_subtitle_languages,current_sub_priority)
-	elseif current_template.sub_track_select_behavior == "match"
-	then
-		subtitle_language=table.concat(current_sub_priority,",")
-	elseif current_template.sub_track_select_behavior == "all"
-	then
-		subtitle_language=table.concat(used_subtitle_languages,",")..",none"
-	end
-	
-	local valid={}
-	for i,track in ipairs(tracks)
-	do
-		if track.type == "audio" and audio_language:match(track.language) == nil 
-		then
-			
-		elseif track.type == "subtitles" and subtitle_language:match(track.language) == nil
-		then
-			
-		else
-			table.insert(valid,track)
-		end
-	end
-	
-	return valid
-end
-
 function load_track_list(index)
 	local clone_tracks=utils.duplicate_tracks(files[index].tracks)
-	assign_external_track_language(clone_tracks)
-	reassign_default_track(clone_tracks)
 	
-	for i,track in ipairs(get_valid_tracks(clone_tracks))
+	for i,track in ipairs(adjust_tracks_attributes(clone_tracks))
 	do
 		local list_text={}
 		local concat=function(name)
@@ -335,16 +336,23 @@ end
 function template_selected(index)
 	preference.selected_template=index
 	current_template=templates[template_list[index]]
-	current_audio_priority=utils.parse_sequence(current_template.audio_track_language_priority,",")
-	current_sub_priority=utils.parse_sequence(current_template.sub_track_language_priority,",")
-	current_ext_sub_lan=utils.parse_sequence(current_template.external_sub_language,",")
-	current_ext_sub_title=utils.parse_sequence(current_template.external_sub_title,",")
-	current_ext_audio_lan=utils.parse_sequence(current_template.external_audio_language,",")
-	current_ext_audio_title=utils.parse_sequence(current_template.external_audio_title,",")
+	
+	current_attr_list.audio.priority=utils.parse_sequence(current_template.audio_track_language_priority,",")
+	current_attr_list.audio.behavior=current_template.audio_track_select_behavior
+	current_attr_list.audio.ext_lan=utils.parse_sequence(current_template.external_audio_language,",")
+	current_attr_list.audio.ext_title=utils.parse_sequence(current_template.external_audio_title,",")
+	current_attr_list.audio.default=current_template.default_audio
+	
+	current_attr_list.subtitles.priority=utils.parse_sequence(current_template.sub_track_language_priority,",")
+	current_attr_list.subtitles.behavior=current_template.sub_track_select_behavior
+	current_attr_list.subtitles.ext_lan=utils.parse_sequence(current_template.external_sub_language,",")
+	current_attr_list.subtitles.ext_title=utils.parse_sequence(current_template.external_sub_title,",")
+	current_attr_list.subtitles.default=current_template.default_subtitle
+	
 	ext_sub_lan_text.value=current_template.external_sub_language
 	ext_sub_title_text.value=current_template.external_sub_title
 	ext_audio_lan_text.value=current_template.external_audio_language
-	ext_audio_lan_text.value=current_template.external_audio_language
+	ext_audio_title_text.value=current_template.external_audio_title
 	audio_track_behavior_text.value=current_template.audio_track_select_behavior
 	audio_track_priority_text.value=current_template.audio_track_language_priority
 	subtitle_track_behavior_text.value=current_template.sub_track_select_behavior
@@ -372,6 +380,158 @@ end
 function init_template_dropdown()
 	fill_dropdown(template_list,templates)
 	template_selected(1)
+end
+
+function scan_dir(root_dir)
+	if is_scanning_dir
+	then
+		iup.Message("Error","now scanning dir! please wait!")
+		return
+	end
+
+	is_scanning_dir=true
+	local progress_dialog=prg_dlg.get_dialog(0,1,"scanning")
+	local on_update=function(text)
+		prg_dlg.update(progress_dialog,0,text)
+	end
+	progress_dialog:show()
+	
+	local new_files=utils.build_file_list(preference.mkvmerge_exec_path,root_dir,on_update)
+	for index,file in ipairs(new_files)
+	do
+		file_list.appenditem=file.name
+		table.insert(files,file)
+	end
+	progress_dialog:hide()
+	reload_track_list()
+	is_scanning_dir=false
+end
+
+function process_list()
+	is_processing=true
+	local progress_dialog=prg_dlg.get_dialog(0,#files,"loading")
+	progress_dialog:show()
+	
+	local external_sub_languages=utils.parse_sequence(current_template.external_sub_language,",")
+	
+	for var,file in ipairs(files)
+	do
+		prg_dlg.update(progress_dialog,var,file.name)
+		local filepath=file.dir.."\\"..file.name
+		local cmd_list={
+			output={preference.mkvmerge_exec_path,
+				"-o",
+				utils.path_wrap(
+					preference.output_dir
+					..utils.rename_to_mkv(file.name))},
+			input={},
+		}
+		
+		local append=function(filepath,option,value)
+			if cmd_list.input[filepath][option] == nil
+			then
+				cmd_list.input[filepath][option] = { }
+			end
+			table.insert(cmd_list.input[filepath][option],value)
+		end
+		
+		local concat_to_final=function(filepath,value)
+			cmd_list.input[filepath][" "][1]
+				=cmd_list.input[filepath][" "][1]
+					..value.." "
+		end
+		
+		local clone_tracks=utils.duplicate_tracks(file.tracks)
+		
+		for index,track in ipairs(adjust_tracks_attributes(clone_tracks))
+		do
+			local track_filepath=""
+			if track.filename == nil
+			then
+				track_filepath=filepath
+			else
+				track_filepath=track.dir.."\\"..track.filename
+			end
+			
+			if cmd_list.input[track_filepath] == nil
+			then
+				cmd_list.input[track_filepath] = {[" "]={""}}
+			end
+			
+			if track.type == "Chapters"
+			then
+				concat_to_final(track_filepath,"--chapters")
+			elseif track.type == "Info"
+			then
+				concat_to_final(track_filepath,"--segmentinfo")
+			elseif track.type == "Tags"
+			then
+				concat_to_final(track_filepath,"--global-tags")
+			else
+				if track.language ~= "und"
+				then
+					concat_to_final(track_filepath,
+					"--language "..track.id..":"..track.language)
+				end
+					
+				if track.title ~= nil and track.title ~= "" 
+				then
+					concat_to_final(track_filepath,
+						"--track-name "..track.id..":"..track.title)
+				end
+			
+				if track.default == "true"
+				then
+					concat_to_final(track_filepath,
+						"--default-track "..track.id)
+				end
+			end
+			
+			if track.type == "audio"
+			then
+				append(track_filepath,"--audio-tracks",track.id)
+			elseif track.type == "subtitles"
+			then
+				append(track_filepath,"--subtitle-tracks",track.id)
+			elseif track.type == "video"
+			then
+				append(track_filepath,"--video-tracks",track.id)
+			elseif track.type == "button"
+			then
+				append(track_filepath,"--button-tracks",track.id)
+			end
+		end
+		
+		local final_cmd=table.concat(cmd_list.output," ").." "
+		for filepath,options in pairs(cmd_list.input)
+		do
+			for option,values in pairs(options)
+			do
+				if option ~= " "
+				then
+					final_cmd=final_cmd..option.." "..table.concat(values,",").." "
+				else
+					final_cmd=final_cmd..option.." "..table.concat(values," ").." "
+				end
+			end
+			final_cmd=final_cmd.." "..utils.path_wrap(filepath).." "
+		end
+		
+		print("-------------")
+		print(final_cmd)
+		print("+++++++++++++")
+		local result=io.popen(final_cmd,"r")
+		local cmd_output=result:read("*l")
+		while cmd_output ~= nil
+		do
+			print(cmd_output)
+			cmd_output=result:read("*l")
+		end
+		result:close()
+	end
+	is_processing=false
+	progress_dialog:hide()
+	clear_file_button:action()
 end
 
 -- callback func
@@ -438,22 +598,8 @@ function add_dir_button:action()
 	
 	if status == "0"
 	then
-		local progress_dialog=prg_dlg.get_dialog(0,1,"scanning")
-		local on_update=function(text)
-			prg_dlg.update(progress_dialog,0,text)
-		end
-		progress_dialog:show()
-		
-		local new_dir=add_dir_dialog.value
-		local new_files=utils.build_file_list(new_dir,on_update)
-		for index,file in ipairs(new_files)
-		do
-			file_list.appenditem=file.name
-			table.insert(files,file)
-		end
-		progress_dialog:hide()
-		--local min_depth=utils.analyse_file_tree(file_tree)
-		reload_track_list()
+		scan_task=coroutine.create(scan_dir)
+		coroutine.resume(scan_task,add_dir_dialog.value)
 	end
 end
 
@@ -559,120 +705,14 @@ function process_button:action()
 		return
 	end
 	
-	local progress_dialog=prg_dlg.get_dialog(0,#files,"loading")
-	progress_dialog:show()
-	
-	local external_sub_languages=utils.parse_sequence(current_template.external_sub_language,",")
-	
-	for var,file in ipairs(files)
-	do
-		prg_dlg.update(progress_dialog,var,file.name)
-		local filepath=file.dir..file.name
-		local cmd_list={
-			output={preference.mkvmerge_exec_path,
-				"-o",
-				utils.path_wrap(
-					preference.output_dir
-					..utils.rename_to_mkv(file.name))},
-			input={},
-		}
-		
-		local append=function(filepath,option,value)
-			if cmd_list.input[filepath][option] == nil
-			then
-				cmd_list.input[filepath][option] = { }
-			end
-			table.insert(cmd_list.input[filepath][option],value)
-		end
-		
-		local concat_to_final=function(filepath,value)
-			cmd_list.input[filepath][" "][1]
-				=cmd_list.input[filepath][" "][1]
-					..value.." "
-		end
-		
-		local clone_tracks=utils.duplicate_tracks(file.tracks)
-		assign_external_track_language(clone_tracks)
-		reassign_default_track(clone_tracks)
-		
-		for index,track in ipairs(get_valid_tracks(clone_tracks))
-		do
-			local track_filepath=""
-			if track.filename == nil
-			then
-				track_filepath=filepath
-			else
-				track_filepath=track.dir..track.filename
-			end
-			
-			if cmd_list.input[track_filepath] == nil
-			then
-				cmd_list.input[track_filepath] = {[" "]={""}}
-			end
-			
-			if track.language ~= "und"
-			then
-				concat_to_final(track_filepath,
-					"--language "..track.id..":"..track.language)
-			end
-				
-			if track.title ~= nil
-			then
-				concat_to_final(track_filepath,
-					"--track-name "..track.id..":"..track.title)
-			end
-			
-			if track.default == "true"
-			then
-				concat_to_final(track_filepath,
-					"--default-track "..track.id)
-			end
-			
-			if track.type == "audio"
-			then
-				append(track_filepath,"--audio-tracks",track.id)
-			elseif track.type == "subtitles"
-			then
-				append(track_filepath,"--subtitle-tracks",track.id)
-			elseif track.type == "video"
-			then
-				append(track_filepath,"--video-tracks",track.id)
-			elseif track.type == "button"
-			then
-				append(track_filepath,"--button-tracks",track.id)
-			end
-		end
-		
-		local final_cmd=table.concat(cmd_list.output," ").." "
-		for filepath,options in pairs(cmd_list.input)
-		do
-			for option,values in pairs(options)
-			do
-				if option ~= " "
-				then
-					final_cmd=final_cmd..option.." "..table.concat(values,",").." "
-				else
-					final_cmd=final_cmd..option.." "..table.concat(values," ").." "
-				end
-			end
-			final_cmd=final_cmd.." "..utils.path_wrap(filepath).." "
-		end
-		
-		print(final_cmd)
-		print("-------------")
-		
-		local result=io.popen(final_cmd,"r")
-		local cmd_output=result:read("*l")
-		while cmd_output ~= nil
-		do
-			print(cmd_output)
-			cmd_output=result:read("*l")
-		end
-		result:close()
-		
+	if is_processing
+	then
+		iup.Message("Error","already processing! please wait!")
+		return
 	end
-	progress_dialog:hide()
-	clear_file_button:action()
+	
+	process_task=coroutine.create(process_list)
+	coroutine.resume(process_task)
 end
 
 function about_button:action()
