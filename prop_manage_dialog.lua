@@ -6,7 +6,6 @@ local prop_manage_dialog={}
 local default_prop={}
 local props={}
 local prop_id_name="new"
-local hints={}
 local is_apply=false
 
 -- ui definition
@@ -248,11 +247,6 @@ local fill_ui=function()
 		prop_list.appenditem=name
 	end
 	
-	if not is_empty
-	then
-		prop_list.value=1
-	end
-	
 	for name,setting in pairs(default_prop)
 	do
 		if setting.type == ctrl_suffix.dropdown
@@ -266,7 +260,12 @@ local fill_ui=function()
 		end
 	end
 	
-	prop_selected(1)
+	
+	if not is_empty
+	then
+		prop_list.value=1
+		prop_selected(1)
+	end
 end
 
 local start_ui=function()
@@ -353,7 +352,7 @@ local start_ui=function()
 	edit_dialog:popup()
 end
 
-function prop_manage_dialog.show_dialog(prop_table,default_prop_table,hint_table)
+function prop_manage_dialog.show_dialog(prop_table,default_prop_table)
 	
 	if prop_table == nil
 	then
@@ -363,7 +362,6 @@ function prop_manage_dialog.show_dialog(prop_table,default_prop_table,hint_table
 	end
 	
 	default_prop=default_prop_table
-	hints=hint_table
 	start_ui()
 	
 	if is_apply

@@ -789,11 +789,6 @@ function prepare_data()
 end
 
 function prepare_ui()
-	while cfg_mgr.is_empty_table(templates)
-	do
-		config_template_button:action()
-	end
-
 	main_dialog = iup.dialog{
 	iup.vbox{
 		iup.hbox{
@@ -860,8 +855,19 @@ function prepare_ui()
 	}; title="MKV tracks batch merge",size="HALFxHALF"}
 	
 	main_dialog:map()
-
-	init_template_dropdown()
+	
+	local init=true
+	while cfg_mgr.is_empty_table(templates)
+	do
+		config_template_button:action()
+		init=false
+	end
+	
+	if init
+	then
+		init_template_dropdown()
+	end
+	
 	output_dir_text.value=preference.output_dir
 	
 	main_dialog:show()
