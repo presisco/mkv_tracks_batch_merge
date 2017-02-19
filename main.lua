@@ -250,7 +250,9 @@ function adjust_tracks_attributes(tracks)
 	
 	for i,track in ipairs(tracks)
 	do
-		if language_filters[track.type] == nil or language_filters[track.type]:match(track.language)
+		if language_filters[track.type] == nil 
+			or track.filename ~= nil
+			or language_filters[track.type]:match(track.language)
 		then
 			table.insert(filtered_tracks,track)
 			table.insert(track_list_mapping,i)
